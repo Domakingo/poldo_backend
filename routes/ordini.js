@@ -568,7 +568,7 @@ router.post(
 // Ottieni tutti gli ordini per la classe del paninaro
 router.get('/classi/me',
     authenticateJWT,
-    authorizeRole(['paninaro']),
+    authorizeRole(['paninaro', 'professore']),
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
