@@ -527,6 +527,59 @@ router.post(
           [today, nTurno, giorno, userId, idOrdineClasse]
         )
         idOrdineSingolo = ordineSingoloResult.insertId
+
+        const dettagliValues = prodotti.map((item) => [
+            idOrdineSingolo,
+            item.idProdotto,
+            item.quantita,
+        ])
+        
+        await connection.query(
+            `INSERT INTO DettagliOrdineSingolo (idOrdineSingolo, idProdotto, quantita)
+            VALUES ?`,
+            [dettagliValues]
+        )
+
+
+        const [gestioni] = await connection.query(`
+            SELECT DISTINCT p.proprietario
+            FROM Prodotto p
+            JOIN DettagliOrdineSingolo dos ON p.idProdotto = dos.idProdotto
+            JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
+            JOIN OrdineClasse oc ON os.idOrdineClasse = oc.idOrdine
+            WHERE oc.idOrdine = ?
+            AND os.confermato = TRUE
+            `, newOrderClasseResult.insertId
+        );
+        
+        console.log('gestioni', gestioni);
+        gestioni.map(gest => {
+            console.log('gest', gest);
+        });
+
+        await Promise.all(
+            gestioni.map(async gest => {
+                const qrCode = await genQr(connection);
+                console.log('qrCode', qrCode);
+                await connection.query(`
+                    INSERT INTO QrCode (token, idOrdineClasse, gestore)
+                    VALUES (?, ?, ?)`,
+                    [qrCode, newOrderClasseResult.insertId, gest.proprietario]
+                );
+            })
+        );
+
+        await connection.commit()
+        
+        res.status(201).json({
+            success: true,
+            idOrdineSingolo: idOrdineSingolo,
+            idOrdineClasse: idOrdineClasse,
+            message: 'Ordine creato e disponibilità aggiornata con successo',
+        })
+
+        return 
+        
       }
 
       // Inserimento dettagli ordine
