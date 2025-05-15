@@ -7,7 +7,7 @@ function getQueryTurni(ruolo) {
     if(["studente", "paninaro"].includes(ruolo)) {
         return 'SELECT * FROM Turno WHERE giorno = ? AND studenti = 1';
     }
-    return 'SELECT * FROM Turno WHERE giorno = ?';
+    return 'SELECT * FROM Turno WHERE giorno = ? AND studenti = 0';
 }
 
 
