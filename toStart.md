@@ -40,7 +40,6 @@ CREATE TABLE OrdineClasse (
     giorno enum('lun', 'mar', 'mer', 'gio', 'ven', 'sab') NOT NULL,
     lastUpdate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     confermato BOOLEAN NOT NULL DEFAULT false,
-    preparato BOOLEAN NOT NULL DEFAULT false,
     oraRitiro TIME,
     classe int NOT NULL,
     FOREIGN KEY (nTurno, giorno) REFERENCES Turno(n, giorno),
@@ -126,6 +125,7 @@ CREATE TABLE QrCode (
     idOrdineClasse INT,
     gestore INT NOT NULL,
     ritirato BOOLEAN NOT NULL DEFAULT false,
+    preparato BOOLEAN NOT NULL DEFAULT false,
     FOREIGN KEY (idOrdineClasse) REFERENCES OrdineClasse(idOrdine),
     FOREIGN KEY (gestore) REFERENCES Gestione(idGestione)
 );
