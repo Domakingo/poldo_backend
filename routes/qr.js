@@ -6,7 +6,7 @@ const { authenticateJWT, authorizeRole } = require('../middlewares/authMiddlewar
 
 router.get('/me',
     authenticateJWT,
-    authorizeRole(['paninaro']),
+    authorizeRole(['paninaro', 'prof']),
     async (req, res) => {
         const connection = await pool.getConnection();
         await connection.beginTransaction();
