@@ -206,7 +206,7 @@ router.get('/classi',
 
 router.get('/classi/me/oggi',
     authenticateJWT,
-    authorizeRole(['paninaro']),
+    authorizeRole(['paninaro', 'professore']),
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
