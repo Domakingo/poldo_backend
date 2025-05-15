@@ -54,7 +54,6 @@ router.get('/', authenticateJWT, authorizeRole(['admin']),
                     os.user,
                     oc.classe,
                     oc.confermato,
-                    oc.preparato,
                     oc.oraRitiro,
                     JSON_ARRAYAGG(
                         JSON_OBJECT(
@@ -93,11 +92,6 @@ router.get('/', authenticateJWT, authorizeRole(['admin']),
             if (confermato === '0' || confermato === '1') {
                 query += ` AND oc.confermato = ?`;
                 params.push(Number(confermato));
-            }
-
-            if (preparato === '0' || preparato === '1') {
-                query += ` AND oc.preparato = ?`;
-                params.push(Number(preparato));
             }
           
             query += ` GROUP BY os.idOrdine ORDER BY os.data DESC, os.idOrdine DESC`;
@@ -147,7 +141,6 @@ router.get('/classi',
                     oc.classe AS classeId,
                     oc.data,
                     oc.oraRitiro,
-                    oc.preparato,
                     JSON_ARRAYAGG(
                         JSON_OBJECT(
                             'idProdotto', p.idProdotto,
@@ -188,10 +181,7 @@ router.get('/classi',
                 params.push(Number(confermato));
             }
 
-            if (preparato === '0' || preparato === '1') {
-                query += ` AND oc.preparato = ?`;
-                params.push(Number(preparato));
-            }            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.oraRitiro, oc.preparato ORDER BY oc.classe ASC`;
+            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.oraRitiro ORDER BY oc.classe ASC`;
 
             const [results] = await connection.execute(query, params);
 
@@ -201,7 +191,6 @@ router.get('/classi',
                 data: formatDate(row.data),
                 oraRitiro: row.oraRitiro,
                 prodotti: row.prodotti,
-                preparato: row.preparato
             }));
 
             res.json(formatted);
@@ -323,7 +312,7 @@ router.get('/me',
             let query = `
                 SELECT
                     os.idOrdine, os.data, os.nTurno, os.giorno,
-                    oc.classe, oc.confermato, oc.preparato,
+                    oc.classe, oc.confermato,
                     JSON_ARRAYAGG(
                         JSON_OBJECT(
                             'idProdotto', p.idProdotto,
@@ -523,8 +512,8 @@ router.post(
       } else {
         const classeExt = userId
         const [newOrderClasseResult] = await connection.query(
-          `INSERT INTO OrdineClasse (idResponsabile, data, nTurno, giorno, classe, confermato, preparato)
-           VALUES (?, ?, ?, ?, ?, TRUE, FALSE)`,
+          `INSERT INTO OrdineClasse (idResponsabile, data, nTurno, giorno, classe, confermato)
+           VALUES (?, ?, ?, ?, ?, TRUE)`,
           [userId, today, nTurno, giorno, classeExt]
         )
         idOrdineClasse = newOrderClasseResult.insertId
@@ -763,8 +752,8 @@ router.put('/classi/me/conferma',
 
             const [nuovoOrdineClasse] = await connection.query(`
                 INSERT INTO OrdineClasse 
-                    (classe, data, nTurno, giorno, idResponsabile, confermato, preparato)
-                VALUES (?, ?, ?, ?, ?, TRUE, FALSE)`,
+                    (classe, data, nTurno, giorno, idResponsabile, confermato)
+                VALUES (?, ?, ?, ?, ?, TRUE)`,
                 [classePaninaro[0].classe, today, nTurno, giorno, paninaroId]
             );
 
@@ -845,7 +834,6 @@ router.get('/classi/:classe',
                     oc.nTurno,
                     oc.giorno,
                     oc.confermato,
-                    oc.preparato,
                     oc.oraRitiro,
                     JSON_ARRAYAGG(
                         JSON_OBJECT(
@@ -897,7 +885,6 @@ router.get('/classi/:classe',
                     oc.nTurno,
                     oc.giorno,
                     oc.confermato,
-                    oc.preparato,
                     oc.oraRitiro
                 ORDER BY oc.data DESC, oc.idOrdine DESC
             `;
