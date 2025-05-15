@@ -25,7 +25,7 @@ passport.use(new GoogleStrategy({
         const ruolo = profile.emails[0].value.endsWith('@studenti.marconiverona.it') ? 'studente' : 'prof';
         
         const classe = 0; 
-        const nome = profile.name.name;
+        const nome = profile.name.givenName + ' ' + profile.name.familyName;
         
         const [newUser] = await connection.execute(
             'INSERT INTO Utente (mail, google_id, ruolo, foto_url, classe, nome) VALUES (?, ?, ?, ?, ?, ?)',
