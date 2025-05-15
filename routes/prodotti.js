@@ -130,7 +130,7 @@ function createQuery(filters) {
 
     // disponibilita
     if (typeof filters.disponibilita !== 'undefined') {
-        conditions.push('p.disponibilita > ?');
+        conditions.push('p.disponibilita >= ?');
         params.push(filters.disponibilita);
     }
 
