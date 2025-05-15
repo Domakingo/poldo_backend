@@ -32,6 +32,13 @@ passport.use(new GoogleStrategy({
             [profile.emails[0].value, profile.id, ruolo, profile.photos[0].value, classe, nome]
         );
 
+        if(ruolo==='prof'){
+            await connection.execute(
+                'INSERT INTO Classe (nome) VALUES (?)',
+                [nome]
+            );
+        }
+
         newUser.id = newUser.insertId;
         newUser.ruolo = ruolo;
 
