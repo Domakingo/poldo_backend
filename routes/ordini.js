@@ -206,7 +206,7 @@ router.get('/classi',
 
 router.get('/classi/me/oggi',
     authenticateJWT,
-    authorizeRole(['paninaro', 'professore']),
+    authorizeRole(['paninaro', 'prof']),
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
@@ -568,7 +568,7 @@ router.post(
 // Ottieni tutti gli ordini per la classe del paninaro
 router.get('/classi/me',
     authenticateJWT,
-    authorizeRole(['paninaro', 'professore']),
+    authorizeRole(['paninaro', 'prof']),
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
