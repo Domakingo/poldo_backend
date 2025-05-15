@@ -510,11 +510,14 @@ router.post(
         )
         idOrdineSingolo = ordineSingoloResult.insertId
       } else {
-        const classeExt = userId
+        const [userClass] = await connection.query(
+          `SELECT classe FROM Utente WHERE idUtente = ?`,
+          [userId]
+        )
         const [newOrderClasseResult] = await connection.query(
           `INSERT INTO OrdineClasse (idResponsabile, data, nTurno, giorno, classe, confermato)
            VALUES (?, ?, ?, ?, ?, TRUE)`,
-          [userId, today, nTurno, giorno, classeExt]
+          [userId, today, nTurno, giorno, userClass[0].classe]
         )
         idOrdineClasse = newOrderClasseResult.insertId
 
