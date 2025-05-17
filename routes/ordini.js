@@ -552,15 +552,10 @@ router.post(
             `, newOrderClasseResult.insertId
         );
         
-        console.log('gestioni', gestioni);
-        gestioni.map(gest => {
-            console.log('gest', gest);
-        });
 
         await Promise.all(
             gestioni.map(async gest => {
                 const qrCode = await genQr(connection);
-                console.log('qrCode', qrCode);
                 await connection.query(`
                     INSERT INTO QrCode (token, idOrdineClasse, gestore)
                     VALUES (?, ?, ?)`,
@@ -832,15 +827,10 @@ router.put('/classi/me/conferma',
                 `, nuovoOrdineClasse.insertId
             );
             
-            console.log('gestioni', gestioni);
-            gestioni.map(gest => {
-                console.log('gest', gest);
-            });
 
             await Promise.all(
                 gestioni.map(async gest => {
                     const qrCode = await genQr(connection);
-                    console.log('qrCode', qrCode);
                     await connection.query(`
                         INSERT INTO QrCode (token, idOrdineClasse, gestore)
                         VALUES (?, ?, ?)`,
@@ -964,77 +954,54 @@ router.get('/classi/:classe',
     }
 );
 
-router.put('/classi/:classeId/turno/:turno/prepara',
+router.put('/classi/:classe/turno/:turno/prepara',
     authenticateJWT,
     authorizeRole(['admin', 'gestore']),
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
-            const { classeId } = req.params;
+            const { classe } = req.params;
             const { turno } = req.params;
-            const { gestoreId } = req.body;
+            const userRole = req.user.ruolo;
+            const userId = req.user.id;
             
-            if (!turno || !classeId) {
+            if (!turno || !classe) {
                 return res.status(400).json({ error: 'Parametri turno e classe mancanti' });
             }
             
-            // Get the current user's gestione if gestoreId not provided
-            let gestoreToUpdate = gestoreId;
-            if (!gestoreToUpdate && req.user.ruolo === 'gestore') {
-                const [gestioneResult] = await connection.query(
-                    `SELECT idGestione FROM UtenteGestione WHERE utenteId = ?`,
-                    [req.user.id]
+            // If gestore, check if they have products in this class's orders
+            if (userRole === 'gestore') {
+                const [hasProducts] = await connection.query(`
+                    SELECT COUNT(*) as count
+                    FROM Prodotto p
+                    JOIN DettagliOrdineSingolo dos ON p.idProdotto = dos.idProdotto
+                    JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
+                    JOIN OrdineClasse oc ON os.idOrdineClasse = oc.idOrdine
+                    WHERE p.proprietario = ?
+                    AND oc.classe = ?
+                    AND oc.nTurno = ?
+                    AND oc.data = CURDATE()`,
+                    [userId, classe, turno]
                 );
                 
-                if (gestioneResult.length > 0) {
-                    gestoreToUpdate = gestioneResult[0].idGestione;
-                } else {
-                    return res.status(400).json({ error: 'Gestione non trovata per questo utente' });
+                if (hasProducts[0].count === 0) {
+                    return res.status(403).json({ 
+                        error: 'Non hai prodotti ordinati in questa classe per questo turno'
+                    });
                 }
             }
             
-            // First find the relevant OrdineClasse records
-            const [ordiniClasse] = await connection.query(`
-                SELECT idOrdine
-                FROM OrdineClasse
-                WHERE nTurno = ? AND classe = ? AND data = CURDATE()`,
-                [turno, classeId]
+            await connection.query(`
+                UPDATE OrdineClasse 
+                SET preparato = TRUE 
+                WHERE nTurno = ? AND classe = ? and data = CURDATE()`,
+                [turno, classe]
             );
-            
-            if (ordiniClasse.length === 0) {
-                return res.status(404).json({ error: 'Nessun ordine trovato per questa classe e turno oggi' });
-            }
-            
-            // Update all QR codes for the matching ordini classe and gestione
-            const ordineClasseIds = ordiniClasse.map(o => o.idOrdine);
-            const updateQuery = gestoreToUpdate 
-                ? `UPDATE QrCode 
-                   SET preparato = TRUE 
-                   WHERE idOrdineClasse IN (?) AND gestore = ?`
-                : `UPDATE QrCode 
-                   SET preparato = TRUE 
-                   WHERE idOrdineClasse IN (?)`;
-                   
-            const params = gestoreToUpdate 
-                ? [ordineClasseIds, gestoreToUpdate] 
-                : [ordineClasseIds];
-                
-            const [updateResult] = await connection.query(updateQuery, params);
-            
-            if (updateResult.affectedRows === 0) {
-                return res.status(404).json({ 
-                    error: 'Nessun QR code trovato per questa combinazione di ordini e gestione' 
-                });
-            }
 
-            res.json({ 
-                success: true, 
-                message: 'QR code marcati come preparati',
-                updatedCount: updateResult.affectedRows
-            });
+            res.json({ success: true });
 
         } catch (error) {
-            console.error('Errore nel preparare QR code di classe:', error);
+            console.error('Errore nel preparare ordine di classe:', error);
             res.status(500).json({ error: 'Errore del database' });
         } finally {
             connection.release();
@@ -1049,88 +1016,72 @@ router.get('/prodotti',
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
-            const { startDate, endDate, nTurno, isProf, gestoreId: queryGestoreId } = req.query;
-            const userId = req.user.id;
-            
-            // Determina quale gestione filtrare
-            let gestoreToFilter = queryGestoreId;
-            
-            // Se l'utente è gestore e non è stato specificato un gestoreId, usa la gestione dell'utente
-            if (!gestoreToFilter && req.user.ruolo === 'gestore') {
-                const [gestioneResult] = await connection.query(
-                    `SELECT idGestione FROM UtenteGestione WHERE utenteId = ?`,
-                    [userId]
-                );
-                
-                if (gestioneResult.length > 0) {
-                    gestoreToFilter = gestioneResult[0].idGestione;
-                }
-            }
-            
+            const { startDate, endDate, nTurno, isProf } = req.query;
+            // const userRole = req.user.ruolo;
+            // const userId = req.user.id;
+            const userRole = 'gestore'; // For testing purposes
+            const userId = 199; // For testing purposes
+              
             let query = `
                 SELECT 
                     p.idProdotto,
                     p.nome,
                     p.prezzo,
                     p.descrizione,
-                    g.nome AS gestione,
-                    p.proprietario AS idGestione,
-                    SUM(IFNULL(dos.quantita, 0)) as quantitaOrdinata,
-                    SUM(CASE WHEN qr.preparato = TRUE THEN IFNULL(dos.quantita, 0) ELSE 0 END) as quantitaPreparata
+                    p.proprietario,
+                    SUM(dos.quantita) as quantitaOrdinata,
+                    CASE 
+                        WHEN SUM(dos.quantita) = SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) 
+                        THEN TRUE 
+                        ELSE FALSE 
+                    END as tuttiPreparati,
+                    SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) as quantitaPreparata
                 FROM Prodotto p
-                JOIN Gestione g ON p.proprietario = g.idGestione
                 LEFT JOIN DettagliOrdineSingolo dos ON p.idProdotto = dos.idProdotto
                 LEFT JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
-                LEFT JOIN OrdineClasse oc ON os.idOrdineClasse = oc.idOrdine
-                LEFT JOIN QrCode qr ON oc.idOrdine = qr.idOrdineClasse AND qr.gestore = p.proprietario
+                LEFT JOIN OrdineClasse oc ON oc.idOrdine = os.idOrdineClasse
                 WHERE 1=1
             `;
 
             const params = [];
-            
-            // Filtra per gestione se specificato
-            if (gestoreToFilter) {
-                query += ` AND p.proprietario = ?`;
-                params.push(gestoreToFilter);
-            }
 
             if (startDate && endDate) {
                 query += ` AND os.data BETWEEN ? AND ?`;
                 params.push(startDate, endDate);
             } else {
-                query += ` AND (os.data = CURDATE() OR os.data IS NULL)`;
+                query += ` AND os.data = CURDATE()`;
             }
 
             if (nTurno) {
-                query += ` AND (os.nTurno = ? OR os.nTurno IS NULL)`;
+                query += ` AND os.nTurno = ?`;
                 params.push(nTurno);
             }
 
-            if (isProf === 'true') {
-                query += ` AND (oc.oraRitiro IS NOT NULL OR oc.oraRitiro IS NULL)`;
-            } else if (isProf === 'false') {
-                query += ` AND (oc.oraRitiro IS NULL OR oc.oraRitiro IS NULL)`;
+            if (isProf) query += ` AND oc.oraRitiro IS NOT NULL`;
+            else query += ` AND oc.oraRitiro IS NULL`;
+
+            // Filter products by proprietario for gestore role
+            if (userRole === 'gestore') {
+                query += ` AND p.proprietario = ?`;
+                params.push(userId);
             }
 
-            query += ` GROUP BY p.idProdotto, p.nome, p.prezzo, p.descrizione, g.nome, p.proprietario
+            query += ` GROUP BY p.idProdotto
                        ORDER BY quantitaOrdinata DESC, p.nome ASC`;
 
-            const [products] = await connection.execute(query, params);
-            
-            const formattedProducts = products.map(product => ({
+            const [products] = await connection.execute(query, params);            const formattedProducts = products.map(product => ({
                 idProdotto: product.idProdotto,
                 nome: product.nome,
                 prezzo: product.prezzo,
                 descrizione: product.descrizione,
-                gestione: product.gestione,
-                idGestione: product.idGestione,
                 img: product.img,
-                quantitaOrdinata: Number(product.quantitaOrdinata) || 0,
-                quantitaPreparata: Number(product.quantitaPreparata) || 0,
-                tuttiPreparati: product.quantitaOrdinata > 0 && product.quantitaOrdinata === product.quantitaPreparata
+                quantitaOrdinata: product.quantitaOrdinata || 0,
+                tuttiPreparati: product.tuttiPreparati || false,
+                quantitaPreparata: product.quantitaPreparata || 0
             }));
 
             res.json(formattedProducts);
+            console.log('Prodotti e quantità recuperati con successo:', formattedProducts);
 
         } catch (error) {
             console.error('Errore nel recupero prodotti e quantità:', error);
@@ -1150,6 +1101,7 @@ router.put('/prodotti/:id/prepara',
         try {
             const { id } = req.params;
             const { nTurno, startDate, endDate } = req.query;
+            const userRole = req.user.ruolo;
             const userId = req.user.id;
             
             if (!id) {
@@ -1160,82 +1112,44 @@ router.put('/prodotti/:id/prepara',
                 return res.status(400).json({ error: 'Parametro nTurno obbligatorio' });
             }
 
-            // Ottieni l'idGestione dell'utente
-            let gestoreId;
-            if (req.user.ruolo === 'gestore') {
-                const [gestioneResult] = await connection.query(
-                    `SELECT idGestione FROM UtenteGestione WHERE utenteId = ?`,
-                    [userId]
+            // Check if gestore owns the product
+            if (userRole === 'gestore') {
+                const [prodotto] = await connection.query(
+                    'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND proprietario = ?',
+                    [id, userId]
                 );
                 
-                if (gestioneResult.length > 0) {
-                    gestoreId = gestioneResult[0].idGestione;
-                } else {
-                    return res.status(400).json({ error: 'Gestione non trovata per questo utente' });
+                if (prodotto.length === 0) {
+                    return res.status(403).json({ error: 'Non sei autorizzato a modificare questo prodotto' });
                 }
             }
 
-            // Trova tutti gli OrdineClasse che contengono il prodotto, per il turno e data specificati
-            const queryOrdiniClasse = `
-                SELECT DISTINCT oc.idOrdine
-                FROM OrdineClasse oc
-                JOIN OrdineSingolo os ON os.idOrdineClasse = oc.idOrdine
-                JOIN DettagliOrdineSingolo dos ON dos.idOrdineSingolo = os.idOrdine
-                JOIN Prodotto p ON dos.idProdotto = p.idProdotto
-                WHERE p.idProdotto = ?
-                AND os.nTurno = ?
-                ${startDate && endDate ? ' AND os.data BETWEEN ? AND ?' : ' AND os.data = CURDATE()'}
-                ${gestoreId ? ' AND p.proprietario = ?' : ''}
-            `;
-
-            const paramsOrdiniClasse = [id, nTurno];
-            if (startDate && endDate) {
-                paramsOrdiniClasse.push(startDate, endDate);
-            }
-            if (gestoreId) {
-                paramsOrdiniClasse.push(gestoreId);
-            }
-
-            const [ordiniClasse] = await connection.execute(queryOrdiniClasse, paramsOrdiniClasse);
-
-            if (ordiniClasse.length === 0) {
-                return res.status(404).json({ error: 'Nessun ordine trovato per questo prodotto' });
-            }
-
-            // Aggiorna i QR code relativi a questi ordini classe e alla gestione dell'utente
-            const ordineClasseIds = ordiniClasse.map(o => o.idOrdine);
-            
-            const updateQuery = gestoreId
-                ? `UPDATE QrCode 
-                   SET preparato = TRUE 
-                   WHERE idOrdineClasse IN (?) AND gestore = ?`
-                : `UPDATE QrCode 
-                   SET preparato = TRUE 
-                   WHERE idOrdineClasse IN (?)`;
-                   
-            const updateParams = gestoreId
-                ? [ordineClasseIds, gestoreId]
-                : [ordineClasseIds];
-                
-            const [updateResult] = await connection.execute(updateQuery, updateParams);
-
-            // Aggiorna anche il flag preparato nei dettagli ordine per tracciamento
-            await connection.execute(`
+            // Costruisci la query con i parametri obbligatori e opzionali
+            let query = `
                 UPDATE DettagliOrdineSingolo dos
                 JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
-                JOIN OrdineClasse oc ON os.idOrdineClasse = oc.idOrdine
                 SET dos.preparato = TRUE 
                 WHERE dos.idProdotto = ?
                 AND dos.preparato = FALSE
-                AND os.nTurno = ?
-                ${startDate && endDate ? ' AND os.data BETWEEN ? AND ?' : ' AND os.data = CURDATE()'}
-                AND oc.idOrdine IN (?)
-            `, [id, nTurno, ...(startDate && endDate ? [startDate, endDate] : []), ordineClasseIds]);
+                AND os.nTurno = ?`;
+            
+            const params = [id, nTurno];
+
+            // Aggiungi filtri per date se specificate
+            if (startDate && endDate) {
+                query += ` AND os.data BETWEEN ? AND ?`;
+                params.push(startDate, endDate);
+            } else {
+                query += ` AND os.data = CURDATE()`;
+            }
+
+            // Esegui l'aggiornamento
+            const [result] = await connection.execute(query, params);
 
             res.json({ 
                 success: true, 
                 message: 'Prodotto marcato come preparato',
-                updatedCount: updateResult.affectedRows 
+                updatedCount: result.affectedRows 
             });
 
         } catch (error) {
