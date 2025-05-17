@@ -12,7 +12,7 @@ router.get('/', authenticateJWT, authorizeRole(['admin']), async (req, res) => {
             FROM Gestione g
         `;
         
-        const [gestioni] = await connection.execute(query, params);
+        const [gestioni] = await connection.execute(query);
         res.json(gestioni);
     } catch (error) {
         console.error('Errore nel recupero gestioni:', error);
@@ -147,10 +147,13 @@ router.get('/:id', authenticateJWT, authorizeRole(['admin']), async (req, res) =
 router.put('/:id', authenticateJWT, authorizeRole(['admin']), async (req, res) => {
     const connection = await pool.getConnection();
     await connection.beginTransaction();
-    
-    try {
+      try {
         const gestioneId = req.params.id;
-        const { nome } = req.body;
+        const { nome, utenteId } = req.body;
+        const userRole = req.user?.ruolo || '';
+        
+        // Log per debug
+        console.log('Update gestione request:', { gestioneId, nome, utenteId, userRole });
         
         // Verifica che la gestione esista
         let checkQuery = `SELECT idGestione FROM Gestione WHERE idGestione = ?`;
@@ -183,8 +186,8 @@ router.put('/:id', authenticateJWT, authorizeRole(['admin']), async (req, res) =
             updateParams.push(nome);
         }
         
-        // Solo admin può associare un nuovo utente
-        if (utenteId !== undefined && userRole === 'admin') {
+        // Solo admin può associare un nuovo utente - verifica che utenteId sia definito e valido
+        if (utenteId !== undefined && utenteId !== null && userRole === 'admin') {
             // Verifica che l'utente esista
             const [userExists] = await connection.query(
                 `SELECT idUtente FROM Utente WHERE idUtente = ?`,
@@ -202,15 +205,15 @@ router.put('/:id', authenticateJWT, authorizeRole(['admin']), async (req, res) =
                  WHERE idUtente = ? AND ruolo != 'admin'`,
                 [utenteId]
             );
-            
-            // Crea o aggiorna l'associazione UtenteGestione
+              // Crea o aggiorna l'associazione UtenteGestione
             await connection.query(`
                 INSERT INTO UtenteGestione (utenteId, idGestione, username, password)
                 VALUES (?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE utenteId = VALUES(utenteId)
             `, [utenteId, gestioneId, `user_${utenteId}`, `pass_${Date.now()}`]);
         }
-          if (updateFields.length === 0 && utenteId === undefined) {
+        
+        if (updateFields.length === 0 && (utenteId === undefined || utenteId === null)) {
             await connection.rollback();
             return res.status(400).json({ error: 'Nessun campo da aggiornare' });
         }
@@ -374,8 +377,7 @@ router.delete('/:id/utenti/:utenteId', authenticateJWT, authorizeRole(['admin'])
             DELETE FROM UtenteGestione
             WHERE idGestione = ? AND utenteId = ?
         `, [gestioneId, utenteId]);
-        
-        if (result.affectedRows === 0) {
+          if (result.affectedRows === 0) {
             return res.status(404).json({ error: 'Associazione non trovata' });
         }
         
@@ -386,6 +388,47 @@ router.delete('/:id/utenti/:utenteId', authenticateJWT, authorizeRole(['admin'])
         
     } catch (error) {
         console.error('Errore nella rimozione utente-gestione:', error);
+        res.status(500).json({ error: 'Errore del database' });
+    } finally {
+        connection.release();
+    }
+});
+
+// Ottieni utenti associati a una gestione
+router.get('/:id/utenti', authenticateJWT, authorizeRole(['admin', 'gestore']), async (req, res) => {
+    const connection = await pool.getConnection();
+    
+    try {
+        const gestioneId = req.params.id;
+        
+        // Verifica accesso per gestori (solo la propria gestione)
+        if (req.user.ruolo === 'gestore' && req.user.idGestione !== parseInt(gestioneId)) {
+            return res.status(403).json({ error: 'Non autorizzato ad accedere a questa gestione' });
+        }
+        
+        // Verifica che la gestione esista
+        const [gestione] = await connection.query(
+            `SELECT idGestione FROM Gestione WHERE idGestione = ?`,
+            [gestioneId]
+        );
+        
+        if (gestione.length === 0) {
+            return res.status(404).json({ error: 'Gestione non trovata' });
+        }
+        
+        // Ottieni gli utenti associati alla gestione
+        const [users] = await connection.query(`
+            SELECT u.idUtente, u.mail, u.ruolo, u.classe, u.bannato, u.foto_url, ug.username
+            FROM Utente u
+            JOIN UtenteGestione ug ON u.idUtente = ug.utenteId
+            WHERE ug.idGestione = ?
+            ORDER BY u.ruolo, u.mail
+        `, [gestioneId]);
+        
+        res.json(users);
+        
+    } catch (error) {
+        console.error('Errore nel recupero utenti della gestione:', error);
         res.status(500).json({ error: 'Errore del database' });
     } finally {
         connection.release();
