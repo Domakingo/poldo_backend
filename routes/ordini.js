@@ -133,31 +133,53 @@ router.get('/classi',
                 );
                 if (!classe[0]?.classe) return res.status(403).json({ error: 'Nessuna classe assegnata' });
                 classeFilter = `AND oc.classe = ${classe[0].classe}`;
-            }
-
-            let query = `
+            }            let query = `
                 SELECT
                     c.nome AS classe,
                     oc.classe AS classeId,
-                    oc.data,
+                    oc.data,                    
                     oc.oraRitiro,
-                    JSON_ARRAYAGG(
-                        JSON_OBJECT(
-                            'idProdotto', p.idProdotto,
-                            'nome', p.nome,
-                            'quantita', dos.totalQuantita,
-                            'prezzo', p.prezzo
-                        )
+                    (
+                        SELECT 
+                            CASE 
+                                WHEN COUNT(qr.token) = 0 THEN FALSE 
+                                WHEN COUNT(qr.token) = SUM(CASE WHEN qr.preparato = TRUE THEN 1 ELSE 0 END) THEN TRUE
+                                ELSE FALSE
+                            END
+                        FROM QrCode qr
+                        WHERE qr.idOrdineClasse = oc.idOrdine
+                    ) AS preparato,
+                    COALESCE(
+                        JSON_ARRAYAGG(
+                            JSON_OBJECT(
+                                'idProdotto', p.idProdotto,
+                                'nome', p.nome,
+                                'quantita', dos.totalQuantita,
+                                'prezzo', p.prezzo,
+                                'preparato', (
+                                    SELECT 
+                                        CASE 
+                                            WHEN SUM(CASE WHEN d.preparato = TRUE THEN 1 ELSE 0 END) = COUNT(d.id) THEN TRUE
+                                            ELSE FALSE
+                                        END
+                                    FROM DettagliOrdineSingolo d
+                                    JOIN OrdineSingolo os2 ON d.idOrdineSingolo = os2.idOrdine
+                                    WHERE d.idProdotto = p.idProdotto
+                                    AND os2.idOrdineClasse = oc.idOrdine
+                                )
+                            )
+                        ),
+                        JSON_ARRAY()
                     ) AS prodotti
                 FROM OrdineClasse oc
                 JOIN Classe c ON oc.classe = c.id
-                JOIN (
+                LEFT JOIN (
                     SELECT os.idOrdineClasse, dos.idProdotto, SUM(dos.quantita) AS totalQuantita
                     FROM OrdineSingolo os
                     JOIN DettagliOrdineSingolo dos ON os.idOrdine = dos.idOrdineSingolo
                     GROUP BY os.idOrdineClasse, dos.idProdotto
                 ) dos ON oc.idOrdine = dos.idOrdineClasse
-                JOIN Prodotto p ON dos.idProdotto = p.idProdotto
+                LEFT JOIN Prodotto p ON dos.idProdotto = p.idProdotto
                 WHERE 1=1
                 ${classeFilter}
             `;
@@ -174,25 +196,36 @@ router.get('/classi',
             if (nTurno) {
                 query += ` AND oc.nTurno = ?`;
                 params.push(nTurno);
-            }
-
-            if (confermato === '0' || confermato === '1') {
+            }            if (confermato === '0' || confermato === '1') {
                 query += ` AND oc.confermato = ?`;
                 params.push(Number(confermato));
-            }
+            }            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.idOrdine, oc.oraRitiro ORDER BY oc.classe ASC`;            const [results] = await connection.execute(query, params);
+            
+            const formatted = results.map(row => {
+                // Handle MySQL JSON result - it could be string or already parsed object
+                let productArray = [];
+                if (row.prodotti) {
+                    if (typeof row.prodotti === 'string') {
+                        try {
+                            productArray = JSON.parse(row.prodotti);
+                        } catch (err) {
+                            console.error('Error parsing products:', err);
+                        }
+                    } else {
+                        // Already parsed by MySQL driver
+                        productArray = row.prodotti;
+                    }
+                }
 
-            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.oraRitiro ORDER BY oc.classe ASC`;
-
-            const [results] = await connection.execute(query, params);
-
-            const formatted = results.map(row => ({
-                classe: row.classe,
-                classeId: row.classeId,
-                data: formatDate(row.data),
-                oraRitiro: row.oraRitiro,
-                prodotti: row.prodotti,
-            }));
-
+                return {
+                    classe: row.classe,
+                    classeId: row.classeId,
+                    data: formatDate(row.data),
+                    oraRitiro: row.oraRitiro,
+                    preparato: row.preparato ? true : false,
+                    prodotti: productArray,
+                };
+            }); 
             res.json(formatted);
 
         } catch (error) {
@@ -960,7 +993,7 @@ router.put('/classi/:classe/turno/:turno/prepara',
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
-            const { classe } = req.params;
+            const { classe } = req.params; // This is now a class ID, not a name
             const { turno } = req.params;
             const userRole = req.user.ruolo;
             const userId = req.user.id;
@@ -989,17 +1022,47 @@ router.put('/classi/:classe/turno/:turno/prepara',
                         error: 'Non hai prodotti ordinati in questa classe per questo turno'
                     });
                 }
-            }
-            
-            await connection.query(`
-                UPDATE OrdineClasse 
-                SET preparato = TRUE 
-                WHERE nTurno = ? AND classe = ? and data = CURDATE()`,
+            }            // First get the OrdineClasse ID
+            const [ordineClasse] = await connection.query(`
+                SELECT idOrdine 
+                FROM OrdineClasse 
+                WHERE nTurno = ? AND classe = ? AND data = CURDATE()`,
                 [turno, classe]
             );
-
+            
+            if (ordineClasse.length === 0) {
+                console.error(`No OrdineClasse found for turno=${turno}, classe=${classe}, date=CURDATE()`);
+                return res.status(404).json({ error: 'Ordine di classe non trovato' });
+            }
+              const ordineClasseId = ordineClasse[0].idOrdine;
+            console.log(`Found OrdineClasse ID: ${ordineClasseId}`);
+            
+            // Check for QrCode entries for this order
+            const [qrCodes] = await connection.query(`
+                SELECT token, gestore, preparato 
+                FROM QrCode 
+                WHERE idOrdineClasse = ?`,
+                [ordineClasseId]
+            );
+            
+            console.log(`Found ${qrCodes.length} QR codes for order ${ordineClasseId}`);
+            
+            if (qrCodes.length === 0) {
+                console.warn(`No QR codes found for order ${ordineClasseId}, no preparation status to update`);
+                return res.status(200).json({ 
+                    success: true, 
+                    warning: 'No QR codes found for this order',
+                    ordineClasseId
+                });
+            }
+              // Update the QrCode table to mark orders as prepared
+            const [updateResult] = await connection.query(`
+                UPDATE QrCode 
+                SET preparato = TRUE 
+                WHERE idOrdineClasse = ?`,
+                [ordineClasseId]
+            );
             res.json({ success: true });
-
         } catch (error) {
             console.error('Errore nel preparare ordine di classe:', error);
             res.status(500).json({ error: 'Errore del database' });
@@ -1081,8 +1144,6 @@ router.get('/prodotti',
             }));
 
             res.json(formattedProducts);
-            console.log('Prodotti e quantità recuperati con successo:', formattedProducts);
-
         } catch (error) {
             console.error('Errore nel recupero prodotti e quantità:', error);
             res.status(500).json({ error: 'Errore del database' });
@@ -1122,8 +1183,24 @@ router.put('/prodotti/:id/prepara',
                 if (prodotto.length === 0) {
                     return res.status(403).json({ error: 'Non sei autorizzato a modificare questo prodotto' });
                 }
+            }            // First check if there are records to update
+            let checkQuery = `
+                SELECT COUNT(*) as count
+                FROM DettagliOrdineSingolo dos
+                JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
+                WHERE dos.idProdotto = ?
+                AND dos.preparato = FALSE
+                AND os.nTurno = ?`;
+                
+            const checkParams = [id, nTurno];
+            
+            if (startDate && endDate) {
+                checkQuery += ` AND os.data BETWEEN ? AND ?`;
+                checkParams.push(startDate, endDate);
+            } else {
+                checkQuery += ` AND os.data = CURDATE()`;
             }
-
+            
             // Costruisci la query con i parametri obbligatori e opzionali
             let query = `
                 UPDATE DettagliOrdineSingolo dos
@@ -1145,7 +1222,6 @@ router.put('/prodotti/:id/prepara',
 
             // Esegui l'aggiornamento
             const [result] = await connection.execute(query, params);
-
             res.json({ 
                 success: true, 
                 message: 'Prodotto marcato come preparato',
