@@ -1035,7 +1035,6 @@ router.put('/classi/:classe/turno/:turno/prepara',
                 return res.status(404).json({ error: 'Ordine di classe non trovato' });
             }
               const ordineClasseId = ordineClasse[0].idOrdine;
-            console.log(`Found OrdineClasse ID: ${ordineClasseId}`);
             
             // Check for QrCode entries for this order
             const [qrCodes] = await connection.query(`
@@ -1044,8 +1043,6 @@ router.put('/classi/:classe/turno/:turno/prepara',
                 WHERE idOrdineClasse = ?`,
                 [ordineClasseId]
             );
-            
-            console.log(`Found ${qrCodes.length} QR codes for order ${ordineClasseId}`);
             
             if (qrCodes.length === 0) {
                 console.warn(`No QR codes found for order ${ordineClasseId}, no preparation status to update`);

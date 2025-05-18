@@ -152,9 +152,6 @@ router.put('/:id', authenticateJWT, authorizeRole(['admin']), async (req, res) =
         const { nome, utenteId } = req.body;
         const userRole = req.user?.ruolo || '';
         
-        // Log per debug
-        console.log('Update gestione request:', { gestioneId, nome, utenteId, userRole });
-        
         // Verifica che la gestione esista
         let checkQuery = `SELECT idGestione FROM Gestione WHERE idGestione = ?`;
         let checkParams = [gestioneId];
