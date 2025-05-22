@@ -16,7 +16,7 @@ const ingredientsRoutes = require('./routes/ingredienti');
 const tagRoutes = require('./routes/tag');
 const turniRoutes = require('./routes/turni');
 const qrRoutes = require('./routes/qr');
-const gestioniRoutes = require('./routes/gesitoni');
+const gestioniRoutes = require('./routes/gestioni');
 //const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
