@@ -16,6 +16,7 @@ const ingredientsRoutes = require('./routes/ingredienti');
 const tagRoutes = require('./routes/tag');
 const turniRoutes = require('./routes/turni');
 const qrRoutes = require('./routes/qr');
+const gestioniRoutes = require('./routes/gesitoni');
 //const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
@@ -45,6 +46,7 @@ app.use('/v1/ingredienti', ingredientsRoutes);
 app.use('/v1/tag', tagRoutes);
 app.use('/v1/turni', turniRoutes);
 app.use('/v1/qr', qrRoutes);
+app.use('/v1/gestioni', gestioniRoutes);
 app.use('/image', express.static(path.join(__dirname, 'public/images/products')));
 //app.use(reportRoutes);
 
