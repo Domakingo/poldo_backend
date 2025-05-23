@@ -337,7 +337,7 @@ router.get('/me',
                 query += ` AND os.data = CURDATE()`;
             }
 
-            if (nTurno) {
+            if (nTurno !== undefined) {
                 query += ` AND os.nTurno = ?`;
                 params.push(nTurno);
             }
@@ -428,9 +428,9 @@ router.post(
           })
         }
       } else {
-        nTurno = 0
+        nTurno = parseInt(bodyTurno, 10)
         const [turno] = await connection.query(
-          `SELECT * FROM Turno WHERE n = ? AND giorno = ?`,
+          `SELECT * FROM Turno WHERE n = ? AND giorno = ? AND studenti = 0`,
           [nTurno, giorno]
         )
 
