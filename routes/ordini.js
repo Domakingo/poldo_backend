@@ -677,12 +677,15 @@ router.delete('/',
                 item.quantita,
                 item.idProdotto
             ])
-            await connection.query(
-                `UPDATE Prodotto 
-                 SET disponibilita = disponibilita + ?
-                 WHERE idProdotto = ?`,
-                [updateValues]
-            )
+            for (const item of prodotti) {
+                await connection.query(
+                    `UPDATE Prodotto 
+                    SET disponibilita = disponibilita + ?
+                    WHERE idProdotto = ?`,
+                    [item.quantita, item.idProdotto]
+                );
+            }
+
 
             // Elimina i dettagli dell'ordine
             await connection.query(
