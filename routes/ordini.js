@@ -644,7 +644,7 @@ router.delete('/',
                 return res.status(400).json({ error: 'Ordini consentiti solo nei giorni feriali' })
             }
 
-            if(nTunro === undefined) {
+            if(nTurno === undefined) {
                 await connection.rollback()
                 return res.status(400).json({ error: 'Parametro nTurno obbligatorio' })
             }
