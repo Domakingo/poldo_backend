@@ -710,6 +710,12 @@ router.delete('/',
                     return res.status(404).json({ error: 'Ordine di classe non trovato' })
                 }
                 await connection.query(
+                    `DELETE FROM QrCode
+                        WHERE idOrdineClasse = ?`,
+                    [idOrdineClasse]
+                )
+
+                await connection.query(
                     `DELETE FROM OrdineClasse
                         WHERE idOrdine = ?`,
                     [idOrdineClasse]
