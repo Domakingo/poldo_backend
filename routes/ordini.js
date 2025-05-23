@@ -429,6 +429,7 @@ router.post(
         }
       } else {
         nTurno = parseInt(bodyTurno, 10)
+        console.log('nTurno', nTurno)
         const [turno] = await connection.query(
           `SELECT * FROM Turno WHERE n = ? AND giorno = ? AND studenti = 0`,
           [nTurno, giorno]
