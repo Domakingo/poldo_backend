@@ -21,9 +21,12 @@ const qrRoutes = require('./routes/qr');
 const app = express();
 const PORT = process.env.PORT;
 
+// Environment check - true if running locally
+const isLocalEnvironment = process.env.NODE_ENV === 'development' || process.env.LOCAL_DEV === 'true';
+
 // Middleware
 app.use(cors({
-  origin: 'http://l.figliolo.it:5173',
+  origin: isLocalEnvironment ? ['http://localhost:5173', 'http://l.figliolo.it:5173'] : 'http://l.figliolo.it:5173',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,

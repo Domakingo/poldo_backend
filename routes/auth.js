@@ -115,6 +115,22 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/check', async (req, res) => {
+    // Environment check - true if running locally
+    const isLocalEnvironment = process.env.NODE_ENV === 'development' || process.env.LOCAL_DEV === 'true';
+
+    // If in local development mode, return a mock user
+    if (isLocalEnvironment) {
+        console.log('Auth check endpoint: Running in local environment, returning mock gestore user');        // Return mock data for a gestore user with ID 198
+        return res.status(200).json({
+            id: 198,
+            nome: 'Local Gestore',
+            ruolo: 'gestore',
+            foto: null, // Changed from foto_url to foto to match frontend expectations
+            idGestione: 1 // This is the gestione ID (1) for user ID 198
+        });
+    }
+
+    // Normal authentication flow for production
     const token = req.cookies.jwt;
     if (!token) {
         return res.status(401).json({ error: 'Token non fornito' });
@@ -142,14 +158,18 @@ router.get('/check', async (req, res) => {
             ...decoded,
             ruolo: user.ruolo,
             bannato: user.bannato
-        };
-
-        const [userData] = await connection.query(
+        };        const [userData] = await connection.query(
             'SELECT nome, foto_url, ruolo FROM Utente WHERE idUtente = ?',
             [req.user.id]
         );
 
-        res.status(200).json(userData[0]);
+        // Rename foto_url to foto to match frontend expectations
+        res.status(200).json({
+            id: req.user.id,
+            nome: userData[0].nome,
+            foto: userData[0].foto_url,
+            ruolo: userData[0].ruolo
+        });
         
     } catch (error) {
         console.error(error);

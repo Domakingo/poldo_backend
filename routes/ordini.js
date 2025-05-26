@@ -1075,13 +1075,45 @@ router.get('/prodotti',
     authorizeRole(['admin', 'gestore']),
     async (req, res) => {
         const connection = await pool.getConnection();
+        
         try {
             const { startDate, endDate, nTurno, isProf } = req.query;
-            // const userRole = req.user.ruolo;
-            // const userId = req.user.id;
-            const userRole = 'gestore'; // For testing purposes
-            const userId = 199; // For testing purposes
-              
+            const userRole = req.user.ruolo;
+            const userId = req.user.id;
+            
+            // Filter products by proprietario for gestore role
+            let gestioneId = null;
+            if (userRole === 'gestore') {
+                try {
+                    // Use idGestione from req.user if available (for local development)
+                    if (req.user.idGestione) {
+                        console.log(`Using gestione ID ${req.user.idGestione} from req.user`);
+                        gestioneId = req.user.idGestione;
+                    } else {
+                        // Get the gestione ID from the database
+                        const [gestioneResult] = await connection.query(
+                            'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
+                            [userId]
+                        );
+
+                        if (gestioneResult.length === 0) {
+                            return res.status(403).json({ 
+                                error: 'Utente non associato ad alcuna gestione' 
+                            });
+                        }
+
+                        gestioneId = gestioneResult[0].idGestione;
+                        console.log(`Retrieved gestione ID ${gestioneId} from database`);
+                    }
+                } catch (dbError) {
+                    console.error('Error retrieving gestione:', dbError);
+                    return res.status(500).json({ 
+                        error: 'Errore nel recupero delle informazioni di gestione' 
+                    });
+                }
+            }
+
+            // Build the main query
             let query = `
                 SELECT 
                     p.idProdotto,
@@ -1089,22 +1121,29 @@ router.get('/prodotti',
                     p.prezzo,
                     p.descrizione,
                     p.proprietario,
-                    SUM(dos.quantita) as quantitaOrdinata,
+                    COALESCE(order_data.quantitaOrdinata, 0) as quantitaOrdinata,
                     CASE 
-                        WHEN SUM(dos.quantita) = SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) 
+                        WHEN COALESCE(order_data.quantitaOrdinata, 0) = 0 THEN TRUE
+                        WHEN COALESCE(order_data.quantitaOrdinata, 0) = COALESCE(order_data.quantitaPreparata, 0) 
                         THEN TRUE 
                         ELSE FALSE 
                     END as tuttiPreparati,
-                    SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) as quantitaPreparata
+                    COALESCE(order_data.quantitaPreparata, 0) as quantitaPreparata
                 FROM Prodotto p
-                LEFT JOIN DettagliOrdineSingolo dos ON p.idProdotto = dos.idProdotto
-                LEFT JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
-                LEFT JOIN OrdineClasse oc ON oc.idOrdine = os.idOrdineClasse
-                WHERE 1=1
+                LEFT JOIN (
+                    SELECT 
+                        dos.idProdotto,
+                        SUM(dos.quantita) as quantitaOrdinata,
+                        SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) as quantitaPreparata
+                    FROM DettagliOrdineSingolo dos
+                    JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
+                    LEFT JOIN OrdineClasse oc ON oc.idOrdine = os.idOrdineClasse
+                    WHERE 1=1
             `;
 
             const params = [];
-
+            
+            // Add date filters to the subquery
             if (startDate && endDate) {
                 query += ` AND os.data BETWEEN ? AND ?`;
                 params.push(startDate, endDate);
@@ -1117,33 +1156,54 @@ router.get('/prodotti',
                 params.push(nTurno);
             }
 
-            if (isProf) query += ` AND oc.oraRitiro IS NOT NULL`;
-            else query += ` AND oc.oraRitiro IS NULL`;
-
-            // Filter products by proprietario for gestore role
-            if (userRole === 'gestore') {
-                query += ` AND p.proprietario = ?`;
-                params.push(userId);
+            // Add professor/student filter to the subquery
+            if (isProf === 'true') {
+                query += ` AND oc.oraRitiro IS NOT NULL`;
+            } else if (isProf === 'false') {
+                query += ` AND oc.oraRitiro IS NULL`;
             }
 
-            query += ` GROUP BY p.idProdotto
-                       ORDER BY quantitaOrdinata DESC, p.nome ASC`;
+            query += `
+                    GROUP BY dos.idProdotto
+                ) order_data ON p.idProdotto = order_data.idProdotto
+                WHERE p.attivo = TRUE AND p.eliminato = FALSE
+            `;
 
-            const [products] = await connection.execute(query, params);            const formattedProducts = products.map(product => ({
+            // Apply gestione filtering for gestore users
+            if (userRole === 'gestore' && gestioneId) {
+                query += ` AND p.proprietario = ?`;
+                params.push(gestioneId);
+            }
+
+            query += ` ORDER BY quantitaOrdinata DESC, p.nome ASC`;
+
+            console.log('Executing query:', query);
+            console.log('With parameters:', params);
+
+            const [products] = await connection.execute(query, params);
+            
+            console.log(`Retrieved ${products.length} products`);
+
+            const formattedProducts = products.map(product => ({
                 idProdotto: product.idProdotto,
                 nome: product.nome,
-                prezzo: product.prezzo,
+                prezzo: parseFloat(product.prezzo), // Ensure decimal is properly formatted
                 descrizione: product.descrizione,
                 img: product.img,
-                quantitaOrdinata: product.quantitaOrdinata || 0,
-                tuttiPreparati: product.tuttiPreparati || false,
-                quantitaPreparata: product.quantitaPreparata || 0
+                proprietario: product.proprietario,
+                quantitaOrdinata: parseInt(product.quantitaOrdinata) || 0,
+                tuttiPreparati: Boolean(product.tuttiPreparati),
+                quantitaPreparata: parseInt(product.quantitaPreparata) || 0
             }));
 
             res.json(formattedProducts);
+            
         } catch (error) {
             console.error('Errore nel recupero prodotti e quantità:', error);
-            res.status(500).json({ error: 'Errore del database' });
+            res.status(500).json({ 
+                error: 'Errore del database',
+                details: process.env.NODE_ENV === 'development' ? error.message : undefined
+            });
         } finally {
             connection.release();
         }
@@ -1168,19 +1228,40 @@ router.put('/prodotti/:id/prepara',
 
             if (!nTurno) {
                 return res.status(400).json({ error: 'Parametro nTurno obbligatorio' });
-            }
-
-            // Check if gestore owns the product
+            }            // Check if gestore owns the product
             if (userRole === 'gestore') {
+                // Use idGestione from req.user if available (for local development)
+                let gestioneId;
+                
+                if (req.user.idGestione) {
+                    console.log(`Using gestione ID ${req.user.idGestione} from req.user`);
+                    gestioneId = req.user.idGestione;
+                } else {
+                    // Otherwise look up the gestione ID from the database
+                    const [gestioneResult] = await connection.query(
+                        'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
+                        [userId]
+                    );
+
+                    if (gestioneResult.length === 0) {
+                        return res.status(403).json({ error: 'Utente non associato ad alcuna gestione' });
+                    }
+
+                    gestioneId = gestioneResult[0].idGestione;
+                }
+                
+                console.log(`Checking if product ${id} belongs to gestione ${gestioneId}`);
+                
+                // Then check if the product belongs to this gestione
                 const [prodotto] = await connection.query(
                     'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND proprietario = ?',
-                    [id, userId]
+                    [id, gestioneId]
                 );
                 
                 if (prodotto.length === 0) {
                     return res.status(403).json({ error: 'Non sei autorizzato a modificare questo prodotto' });
                 }
-            }            // First check if there are records to update
+            }// First check if there are records to update
             let checkQuery = `
                 SELECT COUNT(*) as count
                 FROM DettagliOrdineSingolo dos

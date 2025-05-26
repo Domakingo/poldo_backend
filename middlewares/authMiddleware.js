@@ -1,15 +1,24 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../utils/db');
 
-module.exports = {
-    authenticateJWT: async (req, res, next) => {
-        // const authHeader = req.headers.authorization;
-        
-        // if (!authHeader) {
-        //     return res.sendStatus(401);
-        // }
+// Environment check - true if running locally
+const isLocalEnvironment = process.env.NODE_ENV === 'development' || process.env.LOCAL_DEV === 'true';
 
-        //const token = authHeader.split(' ')[1];
+module.exports = {    authenticateJWT: async (req, res, next) => {
+        // Skip authentication if in local development
+        if (isLocalEnvironment) {
+            console.log('Auth middleware: Running in local environment, skipping authentication');
+            // Set default user for local development - gestore with ID 198
+            req.user = {
+                id: 198,
+                ruolo: 'gestore',
+                bannato: false,
+                idGestione: 1 // Add the correct gestione ID for user 198
+            };
+            return next();
+        }
+
+        // Normal authentication flow for non-local environments
         const token = req.cookies.jwt;
         if (!token) {
             return res.status(401).json({ error: 'Token non fornito' });
@@ -57,9 +66,12 @@ module.exports = {
         } finally {
             connection.release();
         }
-    },
+    },    authorizeRole: (roles) => (req, res, next) => {
+        // If in local dev environment, just pass through
+        if (isLocalEnvironment) {
+            return next();
+        }
 
-    authorizeRole: (roles) => (req, res, next) => {
         try {
             if (!req.user) {
                 return res.status(401).json({ error: 'Non autorizzato' });
