@@ -370,7 +370,7 @@ router.get('/me',
                 query += ` AND os.data = CURDATE()`;
             }
 
-            if (nTurno) {
+            if (nTurno !== undefined) {
                 query += ` AND os.nTurno = ?`;
                 params.push(nTurno);
             }
@@ -409,12 +409,17 @@ router.post(
     try {
       const userId = req.user.id
       const userRole = req.user.ruolo
-      const { prodotti, nTurno: bodyTurno } = req.body
+      const { prodotti, nTurno: bodyTurno, oraRitiro } = req.body
       const today = new Date().toISOString().split('T')[0]
 
       const giorniEnum = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab']
       const giorno = giorniEnum[new Date().getDay()]
       const giorniValidi = ['lun', 'mar', 'mer', 'gio', 'ven']
+
+      if(req.user.ruolo === 'prof' && !oraRitiro){
+        await connection.rollback()
+        return res.status(400).json({ error: 'Ora di ritiro obbligatoria' })
+      }
 
       if (!giorniValidi.includes(giorno)) {
         await connection.rollback()
@@ -456,9 +461,10 @@ router.post(
           })
         }
       } else {
-        nTurno = 0
+        nTurno = parseInt(bodyTurno, 10)
+        console.log('nTurno', nTurno)
         const [turno] = await connection.query(
-          `SELECT * FROM Turno WHERE n = ? AND giorno = ?`,
+          `SELECT * FROM Turno WHERE n = ? AND giorno = ? AND studenti = 0`,
           [nTurno, giorno]
         )
 
@@ -548,9 +554,9 @@ router.post(
           [userId]
         )
         const [newOrderClasseResult] = await connection.query(
-          `INSERT INTO OrdineClasse (idResponsabile, data, nTurno, giorno, classe, confermato)
-           VALUES (?, ?, ?, ?, ?, TRUE)`,
-          [userId, today, nTurno, giorno, userClass[0].classe]
+          `INSERT INTO OrdineClasse (idResponsabile, data, nTurno, giorno, classe, confermato, oraRitiro)
+           VALUES (?, ?, ?, ?, ?, TRUE, ?)`,
+          [userId, today, nTurno, giorno, userClass[0].classe, oraRitiro]
         )
         idOrdineClasse = newOrderClasseResult.insertId
 
@@ -645,6 +651,124 @@ router.post(
     }
   }
 )
+
+router.delete('/', 
+    authenticateJWT, 
+    authorizeRole(['studente', 'prof', 'segreteria', 'terminale', 'admin']), 
+    async (req, res) => {
+        const connection = await pool.getConnection()
+        await connection.beginTransaction()
+
+        try{
+            const { nTurno } = req.body
+            const today = new Date().toISOString().split('T')[0]
+
+            const giorniEnum = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab']
+            const giorno = giorniEnum[new Date().getDay()]
+            const giorniValidi = ['lun', 'mar', 'mer', 'gio', 'ven']
+
+            if (!giorniValidi.includes(giorno)) {
+                await connection.rollback()
+                return res.status(400).json({ error: 'Ordini consentiti solo nei giorni feriali' })
+            }
+
+            if(nTurno === undefined) {
+                await connection.rollback()
+                return res.status(400).json({ error: 'Parametro nTurno obbligatorio' })
+            }
+
+            const userId = req.user.id
+            
+            // Verifica se l'ordine esiste
+            const [ordine] = await connection.query(
+                `SELECT idOrdine, idOrdineClasse FROM OrdineSingolo 
+                 WHERE user = ? AND data = CURDATE() AND nTurno = ?`,
+                [userId, nTurno]
+            )
+
+            if (ordine.length === 0) {
+                await connection.rollback()
+                return res.status(404).json({ error: 'Ordine non trovato' })
+            }
+            const idOrdine = ordine[0].idOrdine
+            
+            // Ripristina la disponibilità dei prodotti
+            const [prodotti] = await connection.query(
+                `SELECT dos.idProdotto, dos.quantita
+                 FROM DettagliOrdineSingolo dos
+                 JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
+                 WHERE os.idOrdine = ?`,
+                [idOrdine]
+            )
+
+            const updateValues = prodotti.map((item) => [
+                item.quantita,
+                item.idProdotto
+            ])
+            for (const item of prodotti) {
+                await connection.query(
+                    `UPDATE Prodotto 
+                    SET disponibilita = disponibilita + ?
+                    WHERE idProdotto = ?`,
+                    [item.quantita, item.idProdotto]
+                );
+            }
+
+
+            // Elimina i dettagli dell'ordine
+            await connection.query(
+                `DELETE FROM DettagliOrdineSingolo
+                    WHERE idOrdineSingolo = ?`,
+                [idOrdine]
+            )
+
+            // Elimina l'ordine
+            await connection.query(
+                `DELETE FROM OrdineSingolo
+                    WHERE idOrdine = ?`,
+                [idOrdine]
+            )
+
+
+            if(req.user.ruolo === 'prof' || req.user.ruolo === 'admin'){
+                // Elimina l'ordine di classe se esiste
+                const idOrdineClasse = ordine[0].idOrdineClasse
+                if (!idOrdineClasse) {
+                    await connection.rollback()
+                    return res.status(404).json({ error: 'Ordine di classe non trovato' })
+                }
+                await connection.query(
+                    `DELETE FROM QrCode
+                        WHERE idOrdineClasse = ?`,
+                    [idOrdineClasse]
+                )
+
+                await connection.query(
+                    `DELETE FROM OrdineClasse
+                        WHERE idOrdine = ?`,
+                    [idOrdineClasse]
+                )
+            }
+
+            await connection.commit()
+            res.status(200).json({ 
+                success: true, 
+                message: 'Ordine eliminato con successo' 
+            })
+
+
+
+
+
+        }catch (error) {
+            await connection.rollback()
+            console.error('Errore eliminazione ordine:', error)
+            res.status(500).json({ 
+                error: 'Errore durante l\'eliminazione dell\'ordine' 
+            })
+        }
+    })
+;
 
 // Ottieni tutti gli ordini per la classe del paninaro
 router.get('/classi/me',
