@@ -119,6 +119,7 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/check', async (req, res) => {
+    console.log("check", req.cookies);
     const token = req.cookies.jwt;
     if (!token) {
         return res.status(401).json({ error: 'Token non fornito' });
