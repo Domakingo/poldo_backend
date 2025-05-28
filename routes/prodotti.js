@@ -347,7 +347,7 @@ router.get('/:id', authenticateJWT, async (req, res) => {
 
 // Crea un nuovo prodotto
 router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.single('image'), async (req, res) => {
-    const { nome, prezzo, descrizione, tags, ingredienti, quantita, temporaneo, disponibilita, attivo } = req.body;
+    const { nome, prezzo, descrizione, tags, ingredienti, quantita, temporaneo, disponibilita, attivo, bevanda } = req.body;
 
     const normalizeArray = (input) => {
         if (Array.isArray(input)) return input;
@@ -376,11 +376,13 @@ router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.si
         return res.status(400).json({ error: 'Campi obbligatori: nome, descrizione, prezzo, quantita, tags e ingredienti' });
     }
 
-    if (req.user.ruolo === 'admin' && !req.body.idGestione) {
+    if (req.user.ruolo === 'admin' && req.body.idGestione=== undefined) {
         if (req.file) await fs.unlink(req.file.path).catch(() => { });
         return res.status(400).json({ error: 'Campo idGestione obbligatorio per admin' });
     }
-
+    if( req.user.ruolo === 'admin') {
+        req.user.idGestione = req.body.idGestione;
+    }
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -395,8 +397,9 @@ router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.si
                 quantita,
                 temporaneo,
                 disponibilita,
-                attivo
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                attivo,
+                bevanda
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 nome,
                 prezzo,
@@ -405,7 +408,8 @@ router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.si
                 quantita,
                 temporaneo || false,
                 disponibilita ?? 0,
-                attivo ?? true
+                attivo ?? true,
+                bevanda===true ? 1 : 0
             ]
         );
 
