@@ -121,8 +121,7 @@ router.get('/classi',
     authorizeRole(['admin', 'gestore']),
     async (req, res) => {
         const connection = await pool.getConnection();
-        try {
-            const { startDate, endDate, nTurno, confermato, preparato } = req.query;
+        try {            const { startDate, endDate, nTurno, confermato, preparato, idGestione } = req.query;
             const userRole = req.user.ruolo;
             let classeFilter = '';
 
@@ -133,6 +132,14 @@ router.get('/classi',
                 );
                 if (!classe[0]?.classe) return res.status(403).json({ error: 'Nessuna classe assegnata' });
                 classeFilter = `AND oc.classe = ${classe[0].classe}`;
+            }
+            
+            // Add filter for gestione if provided
+            let gestioneFilter = '';
+            if (userRole === 'gestore' && req.user.idGestione) {
+                gestioneFilter = `AND p.idGestione = ${req.user.idGestione}`;
+            } else if (idGestione) {
+                gestioneFilter = `AND p.idGestione = ${idGestione}`;
             }            let query = `
                 SELECT
                     c.nome AS classe,
@@ -182,6 +189,7 @@ router.get('/classi',
                 LEFT JOIN Prodotto p ON dos.idProdotto = p.idProdotto
                 WHERE 1=1
                 ${classeFilter}
+                ${gestioneFilter}
             `;
 
             const params = [];
@@ -993,7 +1001,7 @@ router.put('/classi/:classe/turno/:turno/prepara',
     async (req, res) => {
         const connection = await pool.getConnection();
         try {
-            const { classe } = req.params; // This is now a class ID, not a name
+            const { classe } = req.params; 
             const { turno } = req.params;
             const userRole = req.user.ruolo;
             const userId = req.user.id;
@@ -1029,9 +1037,7 @@ router.put('/classi/:classe/turno/:turno/prepara',
                 WHERE nTurno = ? AND classe = ? AND data = CURDATE()`,
                 [turno, classe]
             );
-            
             if (ordineClasse.length === 0) {
-                console.error(`No OrdineClasse found for turno=${turno}, classe=${classe}, date=CURDATE()`);
                 return res.status(404).json({ error: 'Ordine di classe non trovato' });
             }
               const ordineClasseId = ordineClasse[0].idOrdine;
@@ -1043,9 +1049,7 @@ router.put('/classi/:classe/turno/:turno/prepara',
                 WHERE idOrdineClasse = ?`,
                 [ordineClasseId]
             );
-            
-            if (qrCodes.length === 0) {
-                console.warn(`No QR codes found for order ${ordineClasseId}, no preparation status to update`);
+              if (qrCodes.length === 0) {
                 return res.status(200).json({ 
                     success: true, 
                     warning: 'No QR codes found for this order',
@@ -1074,13 +1078,10 @@ router.get('/prodotti',
     authenticateJWT,
     authorizeRole(['admin', 'gestore']),
     async (req, res) => {
-        const connection = await pool.getConnection();
-        try {
-            const { startDate, endDate, nTurno, isProf } = req.query;
-            // const userRole = req.user.ruolo;
-            // const userId = req.user.id;
-            const userRole = 'gestore'; // For testing purposes
-            const userId = 199; // For testing purposes
+        const connection = await pool.getConnection();        try {
+            const { startDate, endDate, nTurno, isProf, idGestione } = req.query;
+            const userRole = req.user.ruolo;
+            const userId = req.user.id;
               
             let query = `
                 SELECT 
@@ -1088,7 +1089,7 @@ router.get('/prodotti',
                     p.nome,
                     p.prezzo,
                     p.descrizione,
-                    p.proprietario,
+                    p.idGestione,
                     SUM(dos.quantita) as quantitaOrdinata,
                     CASE 
                         WHEN SUM(dos.quantita) = SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) 
@@ -1115,15 +1116,16 @@ router.get('/prodotti',
             if (nTurno) {
                 query += ` AND os.nTurno = ?`;
                 params.push(nTurno);
-            }
-
-            if (isProf) query += ` AND oc.oraRitiro IS NOT NULL`;
+            }            if (isProf) query += ` AND oc.oraRitiro IS NOT NULL`;
             else query += ` AND oc.oraRitiro IS NULL`;
 
-            // Filter products by proprietario for gestore role
-            if (userRole === 'gestore') {
-                query += ` AND p.proprietario = ?`;
-                params.push(userId);
+            // Filter by gestione
+            if (userRole === 'gestore' && req.user.idGestione) {
+                query += ` AND p.idGestione = ?`;
+                params.push(req.user.idGestione);
+            } else if (idGestione) {
+                query += ` AND p.idGestione = ?`;
+                params.push(idGestione);
             }
 
             query += ` GROUP BY p.idProdotto
@@ -1168,19 +1170,30 @@ router.put('/prodotti/:id/prepara',
 
             if (!nTurno) {
                 return res.status(400).json({ error: 'Parametro nTurno obbligatorio' });
-            }
-
-            // Check if gestore owns the product
+            }            // Check if gestore has rights to modify the product
             if (userRole === 'gestore') {
+                // First, get the gestione ID for the current user
+                const [gestione] = await connection.query(
+                    'SELECT idGestione FROM Utente WHERE idUtente = ?',
+                    [userId]
+                );
+                
+                if (gestione.length === 0 || !gestione[0].idGestione) {
+                    return res.status(403).json({ error: 'Utente non associato a una gestione' });
+                }
+                
+                const idGestione = gestione[0].idGestione;
+                
+                // Now check if the product belongs to this gestione
                 const [prodotto] = await connection.query(
-                    'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND proprietario = ?',
-                    [id, userId]
+                    'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND idGestione = ?',
+                    [id, idGestione]
                 );
                 
                 if (prodotto.length === 0) {
                     return res.status(403).json({ error: 'Non sei autorizzato a modificare questo prodotto' });
                 }
-            }            // First check if there are records to update
+            }// First check if there are records to update
             let checkQuery = `
                 SELECT COUNT(*) as count
                 FROM DettagliOrdineSingolo dos
