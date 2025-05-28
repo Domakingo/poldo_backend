@@ -503,15 +503,6 @@ router.delete('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), asyn
 router.patch('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.single('image'), async (req, res) => {
     let { nome, prezzo, quantita, descrizione, tags, ingredienti, idGestione } = req.body;
 
-    // Se l'utente è admin, richiedi esplicitamente idGestione
-    if (req.user.ruolo === 'admin') {
-        if (!idGestione) {
-            if (req.file) await fs.unlink(req.file.path).catch(() => { });
-            return res.status(400).json({ error: 'Inserire idGestione' });
-        }
-        req.user.idGestione = idGestione;
-    }
-
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
@@ -541,9 +532,9 @@ router.patch('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), uploa
             const sql = `
           UPDATE Prodotto
           SET ${updateFields.join(', ')}
-          WHERE idProdotto = ? AND proprietario = ?
+          WHERE idProdotto = ?
         `;
-            const params = [...updateValues, req.params.id, req.user.idGestione];
+            const params = [...updateValues, req.params.id];
             const [result] = await connection.execute(sql, params);
             if (result.affectedRows === 0) {
                 await connection.rollback();
@@ -675,19 +666,11 @@ router.patch('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), uploa
 router.patch('/:id/setStatus', authenticateJWT, authorizeRole(['gestore', 'admin']), async (req, res) => {
     const { attivo } = req.body;
 
-    if (req.user.ruolo === 'admin') {
-        const { idGestione } = req.body;
-        if (!idGestione) {
-            return res.status(400).json({ error: 'Inserire idGestione' });
-        }
-        req.user.idGestione = idGestione;
-    }
-
     const connection = await pool.getConnection();
     try {
         const [result] = await connection.execute(
-            'UPDATE Prodotto SET attivo = ? WHERE idProdotto = ? AND proprietario = ?',
-            [attivo, req.params.id, req.user.idGestione]
+            'UPDATE Prodotto SET attivo = ? WHERE idProdotto = ?',
+            [attivo, req.params.id]
         );
 
         if (result.affectedRows === 0) {
