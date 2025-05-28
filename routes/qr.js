@@ -70,7 +70,7 @@ router.get('/me',
     }
 );
 
-router.post('/check',
+router.post('/check', authenticateJWT, authorizeRole(['gestore']),
     async (req, res) => {
         const connection = await pool.getConnection();
         await connection.beginTransaction();
