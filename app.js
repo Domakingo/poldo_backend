@@ -2,7 +2,8 @@ require('dotenv').config({ path: 'secrets.env' });
 const cors = require('cors');
 const express = require('express');
 const cookieParser = require('cookie-parser');
-
+const https = require('https');
+const fs = require('fs');
 const path = require('path');
 
 const logger = require('./utils/logger');
@@ -17,32 +18,28 @@ const tagRoutes = require('./routes/tag');
 const turniRoutes = require('./routes/turni');
 const qrRoutes = require('./routes/qr');
 const gestioniRoutes = require('./routes/gestioni');
-//const reportRoutes = require('./routes/reportRoutes');
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5002;
+
+// SSL cert files - modifica il percorso se necessario
+const sslOptions = {
+  key: fs.readFileSync('/etc/letsencrypt/live/figliolo.it/privkey.pem'),
+  cert: fs.readFileSync('/etc/letsencrypt/live/figliolo.it/fullchain.pem'),
+};
 
 // Middleware
-const allowedOrigins = [
-  'http://l.figliolo.it:5173',
-  'http://localhost:5173',
-  'https://f03a-87-8-184-244.ngrok-free.app'
-]
-
 app.use(cors({
-  origin: (origin, callback) => {
-    callback(null, true)
-  },
-  credentials: true,
+  origin: ['http://l.figliolo.it:5173', 'http://localhost:5173', 'https://f03a-87-8-184-244.ngrok-free.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-}))
-
+  credentials: true,
+}));
 app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(express.json());
 app.use((req, res, next) => {
-    logger.info(`${req.method} ${req.url}`);
-    next();
+  logger.info(`${req.method} ${req.url}`);
+  next();
 });
 
 // Routes
@@ -57,16 +54,16 @@ app.use('/v1/turni', turniRoutes);
 app.use('/v1/qr', qrRoutes);
 app.use('/v1/gestioni', gestioniRoutes);
 app.use('/image', express.static(path.join(__dirname, 'public/images/products')));
-//app.use(reportRoutes);
 
 // Error handling
 app.use((err, req, res, next) => {
-    logger.error(err.stack);
-    res.status(500).json({ error: 'Internal server error' });
+  logger.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT}`);
+// Avvio HTTPS server
+https.createServer(sslOptions, app).listen(PORT, () => {
+  logger.info(`HTTPS Server running on port ${PORT}`);
 });
 
 
