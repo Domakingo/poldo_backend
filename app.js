@@ -30,7 +30,7 @@ const sslOptions = {
 
 // Middleware
 app.use(cors({
-  origin: ['http://l.figliolo.it:5173', 'http://localhost:5173', 'https://f03a-87-8-184-244.ngrok-free.app'],
+  origin: ['*'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,
