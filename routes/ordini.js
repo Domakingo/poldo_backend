@@ -1245,18 +1245,20 @@ router.get('/prodotti',
 
             // Filter by gestione
             if (userRole === 'gestore' && req.user.idGestione) {
-                query += ` AND p.idGestione = ?`;
+                query += ` AND p.proprietario = ?`;
                 params.push(req.user.idGestione);
             } else if (idGestione) {
-                query += ` AND p.idGestione = ?`;
+                query += ` AND p.proprietario = ?`;
                 params.push(idGestione);
             }
 
             query += ` GROUP BY p.idProdotto
                        ORDER BY quantitaOrdinata DESC, p.nome ASC`;
 
-            const [products] = await connection.execute(query, params);            const formattedProducts = products.map(product => ({
+            const [products] = await connection.execute(query, params);            
+            const formattedProducts = products.map(product => ({
                 idProdotto: product.idProdotto,
+                idProprietario: product.proprietario,
                 nome: product.nome,
                 prezzo: product.prezzo,
                 descrizione: product.descrizione,
