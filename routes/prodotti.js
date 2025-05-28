@@ -263,7 +263,7 @@ router.get('/all', authenticateJWT, authorizeRole(['gestore', 'admin']), async (
             prezzoMin: prezzoMin || undefined,
             prezzoMax: prezzoMax || undefined,
             temporaneo: temporaneo || undefined,
-            disponibilita: disponibilita || 1,
+            disponibilita: disponibilita || 0,
             attivo: attivo || undefined,
             eliminato: false,
             orderby: orderBy || 'nome',
