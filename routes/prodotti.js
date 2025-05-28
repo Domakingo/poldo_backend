@@ -407,7 +407,7 @@ router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.si
                 req.user.idGestione,
                 quantita,
                 temporaneo || false,
-                disponibilita ?? 0,
+                disponibilita ?? quantita,
                 attivo ?? true,
                 bevanda===1 ? 1 : 0
             ]
