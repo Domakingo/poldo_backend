@@ -78,6 +78,7 @@ router.post('/check',
         try {
             const { token } = req.body;
             const idGestione = req.user.idGestione;
+            console.log("user", req.user);
             
             if (!token) {
                 await connection.rollback();
