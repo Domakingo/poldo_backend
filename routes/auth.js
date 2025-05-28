@@ -67,7 +67,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
             secure: true,
             sameSite: 'Lax',
             maxAge: 1000 * 60 * 60 * 24 * 365,
-            domain: 'localhost',
+            domain: '.figliolo.it',
             path: '/',
             signed: true
         });
