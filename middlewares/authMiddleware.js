@@ -10,7 +10,7 @@ module.exports = {
         // }
 
         //const token = authHeader.split(' ')[1];
-        const token = req.cookies.jwt;
+        const token = req.signedCookies.jwt;
         if (!token) {
             return res.status(401).json({ error: 'Token non fornito' });
         }

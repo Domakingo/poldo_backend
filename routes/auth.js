@@ -65,9 +65,9 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     res.cookie('jwt', token, {
             httpOnly: true,
             secure: true,
-            sameSite: 'None',
-            maxAge: 1000 * 60 * 60,
-            domain: 'figliolo.it',
+            sameSite: 'Lax',
+            maxAge: 1000 * 60 * 60 * 24 * 365,
+            domain: 'localhost',
             path: '/',
             signed: true
         });
@@ -119,8 +119,8 @@ router.get('/logout', (req, res) => {
 });
 
 router.get('/check', async (req, res) => {
-    console.log("check", req.cookies);
-    const token = req.cookies.jwt;
+    console.log("check", req.signedCookies);
+    const token = req.signedCookies.jwt;
     if (!token) {
         return res.status(401).json({ error: 'Token non fornito' });
     }
