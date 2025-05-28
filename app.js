@@ -30,7 +30,7 @@ const sslOptions = {
 
 // Middleware
 app.use(cors({
-  origin: ['*'],
+  origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   credentials: true,
