@@ -65,7 +65,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
     res.cookie('jwt', token, {
             httpOnly: true,
             secure: true,
-            sameSite: 'Lax',
+            sameSite: 'None',
             maxAge: 1000 * 60 * 60,
             domain: 'figliolo.it',
             path: '/',
