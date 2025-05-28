@@ -409,7 +409,7 @@ router.post('/', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.si
                 temporaneo || false,
                 disponibilita ?? 0,
                 attivo ?? true,
-                bevanda===true ? 1 : 0
+                bevanda===1 ? 1 : 0
             ]
         );
 
