@@ -73,7 +73,7 @@ router.get('/google/callback', passport.authenticate('google', { failureRedirect
         });
 
     //res.redirect(`http://localhost:5173/callback#token=${token}`);
-    res.status(200).redirect('http://localhost:5173/');
+    res.status(200).redirect('https://localhost:5173/');
 });
 
 // Google OAuth
