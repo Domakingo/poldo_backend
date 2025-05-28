@@ -121,7 +121,8 @@ router.get('/classi',
     authorizeRole(['admin', 'gestore']),
     async (req, res) => {
         const connection = await pool.getConnection();
-        try {            const { startDate, endDate, nTurno, confermato, preparato, idGestione } = req.query;
+        try {            
+            const { startDate, endDate, nTurno, confermato, idGestione } = req.query;
             const userRole = req.user.ruolo;
             let classeFilter = '';
 
@@ -132,15 +133,27 @@ router.get('/classi',
                 );
                 if (!classe[0]?.classe) return res.status(403).json({ error: 'Nessuna classe assegnata' });
                 classeFilter = `AND oc.classe = ${classe[0].classe}`;
-            }
-            
+            }            
             // Add filter for gestione if provided
             let gestioneFilter = '';
-            if (userRole === 'gestore' && req.user.idGestione) {
-                gestioneFilter = `AND p.idGestione = ${req.user.idGestione}`;
+            let idGest = null;
+            if (userRole === 'gestore') {
+                // Get the gestione ID for this gestore
+                const [gestione] = await connection.query(
+                    'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
+                    [req.user.id]
+                );
+                
+                if (gestione.length > 0 && gestione[0].idGestione) {
+                    idGest = gestione[0].idGestione;
+                    gestioneFilter = `AND p.proprietario = ${idGest}`;
+                }
             } else if (idGestione) {
-                gestioneFilter = `AND p.idGestione = ${idGestione}`;
-            }            let query = `
+                idGest = idGestione;
+                gestioneFilter = `AND p.proprietario = ${idGestione}`;
+            }
+            
+            let query = `
                 SELECT
                     c.nome AS classe,
                     oc.classe AS classeId,
@@ -207,7 +220,8 @@ router.get('/classi',
             }            if (confermato === '0' || confermato === '1') {
                 query += ` AND oc.confermato = ?`;
                 params.push(Number(confermato));
-            }            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.idOrdine, oc.oraRitiro ORDER BY oc.classe ASC`;            const [results] = await connection.execute(query, params);
+            }            
+            query += ` GROUP BY c.nome, oc.classe, oc.data, oc.idOrdine, oc.oraRitiro ORDER BY oc.classe ASC`;            const [results] = await connection.execute(query, params);
             
             const formatted = results.map(row => {
                 // Handle MySQL JSON result - it could be string or already parsed object
@@ -226,6 +240,7 @@ router.get('/classi',
                 }
 
                 return {
+                    idGestione: idGest,
                     classe: row.classe,
                     classeId: row.classeId,
                     data: formatDate(row.data),
@@ -660,124 +675,6 @@ router.post(
   }
 )
 
-router.delete('/', 
-    authenticateJWT, 
-    authorizeRole(['studente', 'prof', 'segreteria', 'terminale', 'admin']), 
-    async (req, res) => {
-        const connection = await pool.getConnection()
-        await connection.beginTransaction()
-
-        try{
-            const { nTurno } = req.body
-            const today = new Date().toISOString().split('T')[0]
-
-            const giorniEnum = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab']
-            const giorno = giorniEnum[new Date().getDay()]
-            const giorniValidi = ['lun', 'mar', 'mer', 'gio', 'ven']
-
-            if (!giorniValidi.includes(giorno)) {
-                await connection.rollback()
-                return res.status(400).json({ error: 'Ordini consentiti solo nei giorni feriali' })
-            }
-
-            if(nTurno === undefined) {
-                await connection.rollback()
-                return res.status(400).json({ error: 'Parametro nTurno obbligatorio' })
-            }
-
-            const userId = req.user.id
-            
-            // Verifica se l'ordine esiste
-            const [ordine] = await connection.query(
-                `SELECT idOrdine, idOrdineClasse FROM OrdineSingolo 
-                 WHERE user = ? AND data = CURDATE() AND nTurno = ?`,
-                [userId, nTurno]
-            )
-
-            if (ordine.length === 0) {
-                await connection.rollback()
-                return res.status(404).json({ error: 'Ordine non trovato' })
-            }
-            const idOrdine = ordine[0].idOrdine
-            
-            // Ripristina la disponibilità dei prodotti
-            const [prodotti] = await connection.query(
-                `SELECT dos.idProdotto, dos.quantita
-                 FROM DettagliOrdineSingolo dos
-                 JOIN OrdineSingolo os ON dos.idOrdineSingolo = os.idOrdine
-                 WHERE os.idOrdine = ?`,
-                [idOrdine]
-            )
-
-            const updateValues = prodotti.map((item) => [
-                item.quantita,
-                item.idProdotto
-            ])
-            for (const item of prodotti) {
-                await connection.query(
-                    `UPDATE Prodotto 
-                    SET disponibilita = disponibilita + ?
-                    WHERE idProdotto = ?`,
-                    [item.quantita, item.idProdotto]
-                );
-            }
-
-
-            // Elimina i dettagli dell'ordine
-            await connection.query(
-                `DELETE FROM DettagliOrdineSingolo
-                    WHERE idOrdineSingolo = ?`,
-                [idOrdine]
-            )
-
-            // Elimina l'ordine
-            await connection.query(
-                `DELETE FROM OrdineSingolo
-                    WHERE idOrdine = ?`,
-                [idOrdine]
-            )
-
-
-            if(req.user.ruolo === 'prof' || req.user.ruolo === 'admin'){
-                // Elimina l'ordine di classe se esiste
-                const idOrdineClasse = ordine[0].idOrdineClasse
-                if (!idOrdineClasse) {
-                    await connection.rollback()
-                    return res.status(404).json({ error: 'Ordine di classe non trovato' })
-                }
-                await connection.query(
-                    `DELETE FROM QrCode
-                        WHERE idOrdineClasse = ?`,
-                    [idOrdineClasse]
-                )
-
-                await connection.query(
-                    `DELETE FROM OrdineClasse
-                        WHERE idOrdine = ?`,
-                    [idOrdineClasse]
-                )
-            }
-
-            await connection.commit()
-            res.status(200).json({ 
-                success: true, 
-                message: 'Ordine eliminato con successo' 
-            })
-
-
-
-
-
-        }catch (error) {
-            await connection.rollback()
-            console.error('Errore eliminazione ordine:', error)
-            res.status(500).json({ 
-                error: 'Errore durante l\'eliminazione dell\'ordine' 
-            })
-        }
-    })
-;
-
 // Ottieni tutti gli ordini per la classe del paninaro
 router.get('/classi/me',
     authenticateJWT,
@@ -1132,10 +1029,21 @@ router.put('/classi/:classe/turno/:turno/prepara',
             
             if (!turno || !classe) {
                 return res.status(400).json({ error: 'Parametri turno e classe mancanti' });
-            }
-            
+            }            
             // If gestore, check if they have products in this class's orders
             if (userRole === 'gestore') {
+                // Get the gestione ID for this gestore
+                const [gestione] = await connection.query(
+                    'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
+                    [userId]
+                );
+                
+                if (gestione.length === 0 || !gestione[0].idGestione) {
+                    return res.status(403).json({ error: 'Utente non associato a una gestione' });
+                }
+                
+                const idGestione = gestione[0].idGestione;
+                
                 const [hasProducts] = await connection.query(`
                     SELECT COUNT(*) as count
                     FROM Prodotto p
@@ -1146,7 +1054,7 @@ router.put('/classi/:classe/turno/:turno/prepara',
                     AND oc.classe = ?
                     AND oc.nTurno = ?
                     AND oc.data = CURDATE()`,
-                    [userId, classe, turno]
+                    [idGestione, classe, turno]
                 );
                 
                 if (hasProducts[0].count === 0) {
@@ -1154,7 +1062,8 @@ router.put('/classi/:classe/turno/:turno/prepara',
                         error: 'Non hai prodotti ordinati in questa classe per questo turno'
                     });
                 }
-            }            // First get the OrdineClasse ID
+            }
+            // First get the OrdineClasse ID
             const [ordineClasse] = await connection.query(`
                 SELECT idOrdine 
                 FROM OrdineClasse 
@@ -1213,7 +1122,7 @@ router.get('/prodotti',
                     p.nome,
                     p.prezzo,
                     p.descrizione,
-                    p.idGestione,
+                    p.proprietario,
                     SUM(dos.quantita) as quantitaOrdinata,
                     CASE 
                         WHEN SUM(dos.quantita) = SUM(CASE WHEN dos.preparato = TRUE THEN dos.quantita ELSE 0 END) 
@@ -1241,12 +1150,18 @@ router.get('/prodotti',
                 query += ` AND os.nTurno = ?`;
                 params.push(nTurno);
             }            if (isProf) query += ` AND oc.oraRitiro IS NOT NULL`;
-            else query += ` AND oc.oraRitiro IS NULL`;
-
-            // Filter by gestione
-            if (userRole === 'gestore' && req.user.idGestione) {
-                query += ` AND p.proprietario = ?`;
-                params.push(req.user.idGestione);
+            else query += ` AND oc.oraRitiro IS NULL`;            // Filter by gestione
+            if (userRole === 'gestore') {
+                // Get the gestione ID for this gestore
+                const [gestione] = await connection.query(
+                    'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
+                    [userId]
+                );
+                
+                if (gestione.length > 0 && gestione[0].idGestione) {
+                    query += ` AND p.proprietario = ?`;
+                    params.push(gestione[0].idGestione);
+                }
             } else if (idGestione) {
                 query += ` AND p.proprietario = ?`;
                 params.push(idGestione);
@@ -1298,9 +1213,9 @@ router.put('/prodotti/:id/prepara',
                 return res.status(400).json({ error: 'Parametro nTurno obbligatorio' });
             }            // Check if gestore has rights to modify the product
             if (userRole === 'gestore') {
-                // First, get the gestione ID for the current user
+                // Get the gestione ID for this gestore
                 const [gestione] = await connection.query(
-                    'SELECT idGestione FROM Utente WHERE idUtente = ?',
+                    'SELECT idGestione FROM UtenteGestione WHERE utenteId = ?',
                     [userId]
                 );
                 
@@ -1312,7 +1227,7 @@ router.put('/prodotti/:id/prepara',
                 
                 // Now check if the product belongs to this gestione
                 const [prodotto] = await connection.query(
-                    'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND idGestione = ?',
+                    'SELECT idProdotto FROM Prodotto WHERE idProdotto = ? AND proprietario = ?',
                     [id, idGestione]
                 );
                 
