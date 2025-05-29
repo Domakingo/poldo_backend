@@ -505,7 +505,7 @@ router.delete('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), asyn
 
 // Aggiorna un prodotto
 router.patch('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), upload.single('image'), async (req, res) => {
-    let { nome, prezzo, quantita, descrizione, tags, ingredienti, idGestione } = req.body;
+    let { nome, prezzo, quantita, descrizione, tags, ingredienti, idGestione, attivo } = req.body;
 
     const connection = await pool.getConnection();
     try {
@@ -530,6 +530,10 @@ router.patch('/:id', authenticateJWT, authorizeRole(['gestore', 'admin']), uploa
         if (descrizione !== undefined) {
             updateFields.push('descrizione = ?');
             updateValues.push(descrizione);
+        }
+        if(attivo !== undefined) {
+            updateFields.push('attivo = ?');
+            updateValues.push(attivo);
         }
 
         if (updateFields.length > 0) {
