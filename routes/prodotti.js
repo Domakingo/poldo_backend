@@ -691,7 +691,7 @@ router.patch('/:id/setStatus', authenticateJWT, authorizeRole(['gestore', 'admin
 });
 
 // Route immagini prodotti
-router.get('/image/:id', authenticateJWT, async (req, res) => {
+router.get('/image/:id', authenticateJWT, authorizeRole(['admin', 'gestore']), async (req, res) => {
     try {
         const productId = req.params.id;
         const imagesDir = path.join(__dirname, '../public/images/products');
@@ -757,6 +757,57 @@ router.get('/image/:id', authenticateJWT, async (req, res) => {
         next(error);
     }
 });
+
+
+router.delete('/image/:id',authenticateJWT, authorizeRole(['admin', 'gestore']), async (req, res, next) => {
+    try {
+        const productId = req.params.id;
+        const imagesDir = path.join(__dirname, '../public/images/products');
+
+        // Validazione ID
+        if (isNaN(productId)) {
+            return res.status(400).json({ error: 'ID prodotto non valido' });
+        }
+
+        if (productId == -1) {
+            return res.status(400).json({ error: 'Non è possibile eliminare l\'immagine di default' });
+        }
+
+        // Verifica esistenza prodotto
+        const [result] = await pool.execute(
+            'SELECT idProdotto FROM Prodotto WHERE idProdotto = ?',
+            [productId]
+        );
+
+        if (result.length === 0) {
+            return res.status(404).json({ error: 'Prodotto non trovato' });
+        }
+
+        const allowedExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+        let imagePath;
+
+        for (const ext of allowedExtensions) {
+            const candidatePath = path.join(imagesDir, `${productId}${ext}`);
+            try {
+                await fs.access(candidatePath);
+                imagePath = candidatePath;
+                break;
+            } catch {
+                // continua
+            }
+        }
+        if (!imagePath) {
+            return res.status(404).json({ error: 'Nessuna immagine da eliminare' });
+        }
+
+        await fs.unlink(imagePath);
+        res.json({ message: 'Immagine eliminata con successo' });
+
+    } catch (error) {
+        next(error);
+    }
+});
+
 
 
 module.exports = router;
