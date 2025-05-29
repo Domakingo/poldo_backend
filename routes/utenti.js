@@ -10,7 +10,7 @@ router.get('/', authenticateJWT, authorizeRole(['admin']), async (req, res) => {
     
     try {
         let baseQuery = `
-            SELECT u.idUtente, u.mail, u.bannato, c.nome AS classe, u.foto_url, u.ruolo 
+            SELECT u.idUtente, u.mail, u.bannato, c.nome AS classe, u.nome, u.foto_url, u.ruolo 
             FROM Utente u 
             INNER JOIN Classe c ON c.id = u.classe
         `;
