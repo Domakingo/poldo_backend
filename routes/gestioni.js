@@ -4,7 +4,7 @@ const pool = require('../utils/db');
 const { authenticateJWT, authorizeRole } = require('../middlewares/authMiddleware');
 
 // Ottieni le gestioni disponibili
-router.get('/', authenticateJWT, authorizeRole(['admin']), async (req, res) => {
+router.get('/', authenticateJWT, async (req, res) => {
     const connection = await pool.getConnection();
     try {        
         let query = `
