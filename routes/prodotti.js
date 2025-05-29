@@ -214,7 +214,7 @@ router.get('/', authenticateJWT, async (req, res) => {
             prezzoMax: prezzoMax || undefined,
             temporaneo: undefined,
             disponibilita: disponibilita || 0,
-            attivo: true,
+            attivo: undefined,
             eliminato: false,
             orderby: orderBy || 'nome',
             orderDirection: orderDirection || 'ASC'
